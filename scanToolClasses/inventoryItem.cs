@@ -10,6 +10,16 @@ Purpose:  This class is used to contain the inventory item with all its associat
 
 Theory of Operation:
 
+Class Level Members:
+
+itemList - At the class level, we keep up with a complete list of every instance of this class as a linked
+list, called the itemList.  The itemList can be loaded from a disk file and saved to a disk file.  Changes
+in the list can also be merged into a disk file, so that only the changes in the list are stored in the
+file.
+
+We keep up with an item's change status.  This is done for the 
+
+    
 Date:  08/19/2015
 Programmer:  Russell Mace 
 Prototype completed on 9/6/2015
@@ -29,94 +39,24 @@ namespace scanToolClasses
 {
     public class inventoryItem
     {
+        // Class level members
+
         // this static list of inventory items is a linked list of all the inventory items we
         // know about.  We implement it as a class-level linked list so we will always be able
         // to search the list when we need to in order to find an item.
         static public LinkedList<inventoryItem> itemList = new LinkedList<inventoryItem>();
 
-        // members
-        private String item_id;
-        private String description;
+        // this static keyed dictioary list of inventory items is a list of all the
+        // inventory items keyed by itemID
+        static public Dictionary<string, inventoryItem> itemDictionary = new Dictionary<string, inventoryItem>();
 
-        public String ItemID
-        {
-            get { return item_id; }
-        }
-
-        public String Description
-        {
-            get { return description; }
-            set { description = value; }
-        }
-
-        private LinkedList<barcode> barcodeList = new LinkedList<barcode>();
-
-        public inventoryItem(String i, String d)
-        {
-            item_id = i;
-            description = d;
-            inventoryItem.itemList.AddLast(this);
-        }
-
-        public inventoryItem(String i)
-        {
-            item_id = i;
-            inventoryItem.itemList.AddLast(this);
-        }
-
-        public override string ToString()
-        {
-            return "Item ID: " + item_id + ", Decription: " + description;
-        }
-
-        public void assignBarcode(String barcodeText)
-        {
-            barcode b = new barcode(barcodeText, this);
-            barcodeList.AddLast(b);
-        }
-
-        public XmlNode encodeXML(XmlDocument doc)
-        {
-            // The outer node element is an "Item" node.
-            XmlNode itemNode = doc.CreateNode("element", "Item", "");
-
-            // It contains at least one child node, the "Item_ID" node
-            XmlNode itemIDNode = doc.CreateNode("element", "Item_ID", "");
-            itemIDNode.InnerText = this.item_id;
-            itemNode.AppendChild(itemIDNode);
-
-            // It can optionally have a description node if the item has a valid description
-            if (this.description != null && this.description.Length > 0)
-            {
-                XmlNode descriptNode = doc.CreateNode("element", "Description", "");
-                descriptNode.InnerText = this.description;
-                itemNode.AppendChild(descriptNode);
-            }
-
-            // if it has any barcodes in its list, then we will add a child node called
-            // <Barcodes> with an individual <Barcode> node for each barcode.
-            if (this.barcodeList.Count > 0)
-            {
-                XmlNode barcodesNode = doc.CreateNode("element", "Barcodes", "");
-                foreach (barcode bc in barcodeList)
-                {
-                    XmlNode barcodeNode = doc.CreateNode("element", "Barcode", "");
-                    barcodeNode.InnerText = bc.getBarCodeText();
-                    barcodesNode.AppendChild(barcodeNode);
-                }
-                itemNode.AppendChild(barcodesNode);
-            }
-            return itemNode;
-        }
-
-
-        // Given an xml node named "Item" with all its child nodes, this
-        // method creates an inventory item and returns a reference for it
+        // Given an xml node named "itemNode" with all its child nodes, this
+        // method creates a new inventory item and returns a reference for it
         // to the calling program.  If for some reason, the item cannot be
         // created, most likely because the xml is incorrect, then this
         // method returns a null reference.  The Item node must contain an
         // item_id child node, and it can optionally contain a Description
-        // child node.
+        // child node, and optionally contain a "Barcodes" child node
         private static inventoryItem createItemFromXML(XmlNode itemNode)
         {
             inventoryItem itm = null;
@@ -196,8 +136,8 @@ namespace scanToolClasses
                 //    }    
                 //   else
                 //    {
-//            }
-//                }
+                //            }
+                //                }
             }
             catch (Exception e)
             {
@@ -230,8 +170,113 @@ namespace scanToolClasses
 
             return itemsSaved;
         }
+
+
+
+        // members
+        private String item_id;
+        private String description;
+        private LinkedList<barcode> barcodeList = new LinkedList<barcode>();
+
+//        public enum changeType : byte
+//       {
+//            NOCHANGE = 0,
+//            CHANGED = 1,
+//            NEW = 2,
+//            DELETED = 3
+//        }
+//        private changeType changeStatus;
+
+        // properties
+        public String ItemID
+        {
+            get { return item_id; }
+        }
+
+        public String Description
+        {
+            get { return description; }
+            set { description = value; }
+        }
+
+//        public changeType ChangeStatus
+//        {
+//            get { return changeStatus; }
+//            set { changeStatus = value; }
+//        }
+
+        public inventoryItem(String i, String d)
+        {
+            if (inventoryItem.itemDictionary.ContainsKey(i))
+            {
+                throw new Exception("inventoryItem(): Cannot Add Duplicate Item ID Key!");
+            }
+            else
+            {
+                item_id = i;
+                description = d;
+                inventoryItem.itemList.AddLast(this);
+                inventoryItem.itemDictionary.Add(item_id, this);
+            }
+        }
+
+        public inventoryItem(String i)
+        {
+            if (inventoryItem.itemDictionary.ContainsKey(i))
+            {
+                throw new Exception("inventoryItem(): Cannot Add Duplicate Item ID Key!");
+            }
+            else
+            {
+                item_id = i;
+                inventoryItem.itemList.AddLast(this);
+                inventoryItem.itemDictionary.Add(item_id, this);
+            }
+        }
+
+        public override string ToString()
+        {
+            return "Item ID: " + item_id + ", Decription: " + description;
+        }
+
+        public void assignBarcode(String barcodeText)
+        {
+            barcode b = new barcode(barcodeText, this);
+            barcodeList.AddLast(b);
+        }
+
+        public XmlNode encodeXML(XmlDocument doc)
+        {
+            // The outer node element is an "Item" node.
+            XmlNode itemNode = doc.CreateNode("element", "Item", "");
+
+            // It contains at least one child node, the "Item_ID" node
+            XmlNode itemIDNode = doc.CreateNode("element", "Item_ID", "");
+            itemIDNode.InnerText = this.item_id;
+            itemNode.AppendChild(itemIDNode);
+
+            // It can optionally have a description node if the item has a valid description
+            if (this.description != null && this.description.Length > 0)
+            {
+                XmlNode descriptNode = doc.CreateNode("element", "Description", "");
+                descriptNode.InnerText = this.description;
+                itemNode.AppendChild(descriptNode);
+            }
+
+            // if it has any barcodes in its list, then we will add a child node called
+            // <Barcodes> with an individual <Barcode> node for each barcode.
+            if (this.barcodeList.Count > 0)
+            {
+                XmlNode barcodesNode = doc.CreateNode("element", "Barcodes", "");
+                foreach (barcode bc in barcodeList)
+                {
+                    XmlNode barcodeNode = doc.CreateNode("element", "Barcode", "");
+                    barcodeNode.InnerText = bc.getBarCodeText();
+                    barcodesNode.AppendChild(barcodeNode);
+                }
+                itemNode.AppendChild(barcodesNode);
+            }
+            return itemNode;
+        }
     }
-
-    
-
 }
