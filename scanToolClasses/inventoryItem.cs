@@ -33,7 +33,7 @@ using System.Threading.Tasks;
 
 // These are the namespaces we add so that we can reference everything we need.
 using System.Xml;
-
+using System.IO;
 
 namespace scanToolClasses
 {
@@ -44,11 +44,46 @@ namespace scanToolClasses
         // this static list of inventory items is a linked list of all the inventory items we
         // know about.  We implement it as a class-level linked list so we will always be able
         // to search the list when we need to in order to find an item.
-        static public LinkedList<inventoryItem> itemList = new LinkedList<inventoryItem>();
+        // static public LinkedList<inventoryItem> itemList = new LinkedList<inventoryItem>();
 
         // this static keyed dictioary list of inventory items is a list of all the
         // inventory items keyed by itemID
         static public Dictionary<string, inventoryItem> itemDictionary = new Dictionary<string, inventoryItem>();
+
+        /// <summary>
+        /// Given an xml node, check if the xml node contains a reference to an item id and return
+        /// the item id value.  It will return null if no item id is found in the xml node
+        /// </summary>
+        /// <param name="itemNode"></param>
+        /// <returns></returns>
+        private static string getItemIDFromXML (XmlNode itemNode)
+        {
+            String itemText = null;
+            foreach (XmlNode node in itemNode.ChildNodes)
+            {
+                if (node.Name == "Item_ID")
+                {
+                    itemText = node.InnerText;
+                }
+            }
+            return itemText;
+        }
+
+        private static bool doesItemExist (XmlNode itemNode)
+        {
+            bool itemExists = false;
+            String itemText = null;
+            itemText = getItemIDFromXML(itemNode);
+            if (itemText != null)
+            {
+                // let's check to see if the item already exists
+                if (itemDictionary.ContainsKey(itemText))
+                {
+                    itemExists = true;
+                }
+            }
+            return itemExists;
+        }
 
         // Given an xml node named "itemNode" with all its child nodes, this
         // method creates a new inventory item and returns a reference for it
@@ -75,13 +110,24 @@ namespace scanToolClasses
             }
             if (itemText != null)
             {
-                if (descriptText != null)
+                // let's check to see if the item already exists
+                if (itemDictionary.ContainsKey(itemText))
                 {
-                    itm = new inventoryItem(itemText, descriptText);
+                    if(itemDictionary.TryGetValue(itemText, out itm))
+                    {
+                        itm.description = descriptText;
+                    }
                 }
                 else
                 {
-                    itm = new inventoryItem(itemText);
+                    if (descriptText != null)
+                    {
+                        itm = new inventoryItem(itemText, descriptText);
+                    }
+                    else
+                    {
+                        itm = new inventoryItem(itemText);
+                    }
                 }
             }
             return itm;
@@ -105,14 +151,14 @@ namespace scanToolClasses
             }
         }
 
-        public static int LoadItems(String configFile)
+        public static int LoadItems(String xmlFile)
         {
             int itemsLoaded = 0;
             // first, let's open the file
             try
             {
                 XmlDocument itemFile = new XmlDocument();
-                itemFile.Load(configFile);
+                itemFile.Load(xmlFile);
 
                 // now that the file is open, let's parse the xml in it.
                 // the file will be full of item nodes, with each item node having
@@ -121,23 +167,14 @@ namespace scanToolClasses
                 XmlNodeList itms = itemFile.GetElementsByTagName("Item");
                 for (int i = 0; i < itms.Count; i++)
                 {
+                    // the createItemFromXML takes care of the case where
+                    // the item already exists.  It will overwrite the
+                    // description with the uploaded data.
                     inventoryItem itm = createItemFromXML(itms[i]);
                     itemsLoaded++;
                     XmlNode bcList = itms[i].SelectSingleNode("Barcodes");
                     assignBarcodesToItemFromXML(bcList, itm);
                 }
-                //foreach (XmlNode itemNode in itemFile.DocumentElement.ChildNodes)
-                //{
-                //  inventoryItem itm = createItemFromXML(itemNode);
-                //if (itm.Equals(null))
-                //    {
-                // then things are screwed up and we can't go any further.
-                // we do nothing and try to process the next item.
-                //    }    
-                //   else
-                //    {
-                //            }
-                //                }
             }
             catch (Exception e)
             {
@@ -146,7 +183,7 @@ namespace scanToolClasses
             return itemsLoaded;
         }
 
-        public static int saveItems(String configFile)
+        public static int saveItems(String fileName)
         {
             int itemsSaved = 0;
             XmlDocument doc = new XmlDocument();
@@ -159,33 +196,80 @@ namespace scanToolClasses
 
             // We're going to move through the list of all items and encode each item as
             // an xml node, and then we'll write all the xml nodes to a file.
-            foreach (inventoryItem itm in inventoryItem.itemList)
+            foreach (KeyValuePair<string, inventoryItem> entry in inventoryItem.itemDictionary)
             {
+                inventoryItem itm = entry.Value;
                 XmlNode itmXml = itm.encodeXML(doc);
                 rootNode.AppendChild(itmXml);
                 itemsSaved++;
             }
-            // now save the file
-            doc.Save(configFile);
 
+            // now save the file
+            doc.Save(fileName);
             return itemsSaved;
         }
 
-
+        /// <summary>
+        /// This method merges data from the program into an existing xml file that contains
+        /// item data.  If an item exists in our data, then we will overwrite the item in the
+        /// file with the new description, and we will add any new barcodes from our data into
+        /// the file, but we won't get rid of any existing barcodes that are in the file. 
+        /// </summary>
+        /// <param name="fileName"></param>
+        public static void mergeItemsIntoExistingFile(String fileName)
+        {
+            // first, let's open the file
+            try
+            {
+                inventoryItem itm = null;
+                XmlDocument itemFile = new XmlDocument();
+                // By using this filestream object and wrapping all the rest of the code in it,
+                // then we make sure that the file is locked during this entire transaction.
+                using (FileStream fs = new FileStream(fileName, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                {
+                    using (XmlReader xr = XmlReader.Create(fs))
+                    {
+                        xr.Read();
+                        itemFile.Load(xr);
+                        // now that the file is open, let's parse the xml in it.
+                        // the file will be full of item nodes, but we only want to load the
+                        // items that don't already exist 
+                        XmlNodeList itms = itemFile.GetElementsByTagName("Item");
+                        for (int i = 0; i < itms.Count; i++)
+                        {
+                            // let's check if this item already exists.
+                            if (!doesItemExist(itms[i]))
+                            {
+                                itm = createItemFromXML(itms[i]);
+                            }
+                            else
+                            // the item already exists, so let's just look it up.
+                            {
+                                string itemText = getItemIDFromXML(itms[i]);
+                                if (itemText != null) itemDictionary.TryGetValue(itemText, out itm);
+                            }
+                            // coming out of this if statement, if we have a reference to a valid item,
+                            // then let's add the barcodes from the file to the valid item.
+                            // the assignBarcodesToItemFromXML method only adds barcodes to the item
+                            // if they haven't already been added.
+                            XmlNode bcList = itms[i].SelectSingleNode("Barcodes");
+                            assignBarcodesToItemFromXML(bcList, itm);
+                        }
+                        saveItems(fileName);
+                    }
+                    fs.Close();
+                }
+            }
+            catch (Exception e)
+            {
+                throw new Exception("inventoryItem:mergeItemsIntoExistingFile - Error while saving file: " + e.ToString(), e);
+            }
+        }
 
         // members
         private String item_id;
         private String description;
-        private LinkedList<barcode> barcodeList = new LinkedList<barcode>();
-
-//        public enum changeType : byte
-//       {
-//            NOCHANGE = 0,
-//            CHANGED = 1,
-//            NEW = 2,
-//            DELETED = 3
-//        }
-//        private changeType changeStatus;
+        private Dictionary<string, barcode> barcodeList = new Dictionary<string, barcode>();
 
         // properties
         public String ItemID
@@ -199,11 +283,10 @@ namespace scanToolClasses
             set { description = value; }
         }
 
-//        public changeType ChangeStatus
-//        {
-//            get { return changeStatus; }
-//            set { changeStatus = value; }
-//        }
+        public Dictionary<string, barcode> BarcodeList
+        {
+            get { return barcodeList; }
+        }
 
         public inventoryItem(String i, String d)
         {
@@ -215,7 +298,6 @@ namespace scanToolClasses
             {
                 item_id = i;
                 description = d;
-                inventoryItem.itemList.AddLast(this);
                 inventoryItem.itemDictionary.Add(item_id, this);
             }
         }
@@ -229,20 +311,24 @@ namespace scanToolClasses
             else
             {
                 item_id = i;
-                inventoryItem.itemList.AddLast(this);
                 inventoryItem.itemDictionary.Add(item_id, this);
             }
         }
 
         public override string ToString()
         {
-            return "Item ID: " + item_id + ", Decription: " + description;
+            int paddingSize = 24;
+            string idTxt = item_id.Trim().PadRight(paddingSize);
+            return "Item ID: " + idTxt + "Description: " + description;
         }
 
         public void assignBarcode(String barcodeText)
         {
-            barcode b = new barcode(barcodeText, this);
-            barcodeList.AddLast(b);
+            if (!barcodeList.ContainsKey(barcodeText))
+            {
+                barcode b = new barcode(barcodeText, this);
+                barcodeList.Add(barcodeText, b);
+            }
         }
 
         public XmlNode encodeXML(XmlDocument doc)
@@ -268,8 +354,9 @@ namespace scanToolClasses
             if (this.barcodeList.Count > 0)
             {
                 XmlNode barcodesNode = doc.CreateNode("element", "Barcodes", "");
-                foreach (barcode bc in barcodeList)
+                foreach (KeyValuePair<string, barcode> entry in barcodeList)
                 {
+                    barcode bc = entry.Value;
                     XmlNode barcodeNode = doc.CreateNode("element", "Barcode", "");
                     barcodeNode.InnerText = bc.getBarCodeText();
                     barcodesNode.AppendChild(barcodeNode);

@@ -24,12 +24,17 @@ namespace scanToolClasses
         /* This barcode list is a class variable - there will be only one barcode list.
            It will hold a list of all the barcodes that the system knows about at any one time.
            This will give us a way of looking up to see if the barcode already exists when
-           it is scanned.  We implement this as a linked list using the C# library's linked
-           list template class.
+           it is scanned.  We implement this as a keyed Dictionary using the C# library's Dictionary
+           template class.
         */
-        static LinkedList<barcode> barcodeList = new LinkedList<barcode>();
-
+        static private Dictionary<string, barcode> barcodeList = new Dictionary<string, barcode>();
         // Declaration of members
+
+        public Dictionary<string, barcode> BarcodeList
+        {
+            get { return barcodeList; }
+        }
+
         String barcodeText;
         inventoryItem item;
 
@@ -42,7 +47,7 @@ namespace scanToolClasses
         {
             barcodeText = bc;
             item = i;
-            barcodeList.AddLast(this);  // this is a new barcode, so we add it to our barcode list
+            barcodeList.Add(bc, this);  // this is a new barcode, so we add it to our barcode list
         }
 
         public inventoryItem getItem() { return item; }
@@ -55,19 +60,20 @@ namespace scanToolClasses
         public static barcode findBarcode(String bc)
         {
             barcode bcfound = null;
-            foreach (barcode bcode in barcodeList)
+            foreach (KeyValuePair<string, barcode> entry in barcodeList)
             {
-                if (bcode.barcodeText == bc)
+                string bcode = entry.Key;
+                if (bcode == bc)
                 {
-                    bcfound = bcode;
+                    bcfound = entry.Value;
                 }
             }
             return bcfound;
         }
 
-        static String readScanner()
+        public override string ToString()
         {
-            return "scannercode";
+            return barcodeText;
         }
     }
 }
