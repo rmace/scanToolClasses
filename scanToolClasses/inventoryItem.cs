@@ -33,7 +33,12 @@ using System.Threading.Tasks;
 
 // These are the namespaces we add so that we can reference everything we need.
 using System.Xml;
+using System.Xml.Schema;
 using System.IO;
+using System.Reflection;
+using System.Windows;
+
+
 
 namespace scanToolClasses
 {
@@ -68,6 +73,43 @@ namespace scanToolClasses
             }
             return itemText;
         }
+
+        public static inventoryItem lookUpItem(string key)
+        {
+            inventoryItem foundItem = null;
+            if (key != null)
+            {
+                if (itemDictionary.ContainsKey(key))
+                {
+                    itemDictionary.TryGetValue(key, out foundItem);
+                }
+            }
+            return foundItem;
+        }
+
+        public static inventoryItem lookUpDescription(string desc)
+        {
+            inventoryItem foundItem = null;
+            string itemdesc;
+            if (desc != null)
+            {
+                desc = desc.ToLower();
+                foreach (KeyValuePair<string, inventoryItem> entry in itemDictionary)
+                {
+                    itemdesc = entry.Value.Description.ToLower();
+                    if (itemdesc != null)
+                    {
+                        if (itemdesc.Contains(desc))
+                        {
+                            foundItem = entry.Value;
+                            break;
+                        }
+                    }
+                }
+            }
+            return foundItem;
+        }
+
 
         private static bool doesItemExist (XmlNode itemNode)
         {
@@ -151,14 +193,34 @@ namespace scanToolClasses
             }
         }
 
+        private static bool validateItemXML(XmlDocument doc)
+        {
+            bool isValid = true;
+
+            // create an anonymous method to validate
+            ValidationEventHandler validator = delegate (object sender, ValidationEventArgs e)
+            {
+                Console.WriteLine(e.Message);
+                isValid = false;
+            };
+
+            Assembly a = Assembly.GetExecutingAssembly();
+            Stream s = a.GetManifestResourceStream("scanToolClasses.inventoryItems.xsd");
+            XmlSchema x = XmlSchema.Read(s, null);
+            doc.Schemas.Add(x);
+            ValidationEventHandler eventHandler = new ValidationEventHandler(validator);
+            doc.Validate(eventHandler);
+            return isValid;
+        }
+
         public static int LoadItems(String xmlFile)
         {
             int itemsLoaded = 0;
             // first, let's open the file
-            try
+            XmlDocument itemFile = new XmlDocument(); 
+            itemFile.Load(xmlFile);
+            if (validateItemXML(itemFile))  // returns true if the itemFile is valid
             {
-                XmlDocument itemFile = new XmlDocument();
-                itemFile.Load(xmlFile);
 
                 // now that the file is open, let's parse the xml in it.
                 // the file will be full of item nodes, with each item node having
@@ -172,28 +234,28 @@ namespace scanToolClasses
                     // description with the uploaded data.
                     inventoryItem itm = createItemFromXML(itms[i]);
                     itemsLoaded++;
-                    XmlNode bcList = itms[i].SelectSingleNode("Barcodes");
+                    XmlNode bcList = itms[i].LastChild;
                     assignBarcodesToItemFromXML(bcList, itm);
                 }
             }
-            catch (Exception e)
+            else
             {
-                // do nothing for right now
+                throw new Exception("inventoryItem:LoadItems() - The XML document contains errors and does not hold a valid list of Inventory Items.");   
             }
             return itemsLoaded;
         }
 
-        public static int saveItems(String fileName)
+        private static int BuildItemsXML(out XmlDocument doc)
         {
-            int itemsSaved = 0;
-            XmlDocument doc = new XmlDocument();
+            int itemsBuilt = 0;
+            doc = new XmlDocument();
             XmlDeclaration xmlDec = doc.CreateXmlDeclaration("1.0", "UTF-8", null);
             XmlElement root = doc.DocumentElement;
             doc.InsertBefore(xmlDec, root);
             XmlNode rootNode = doc.CreateElement("Items");
+            ((XmlElement)rootNode).SetAttribute("xmlns", "http://inventoryItems.xsd");
             doc.AppendChild(rootNode);
-
-
+            
             // We're going to move through the list of all items and encode each item as
             // an xml node, and then we'll write all the xml nodes to a file.
             foreach (KeyValuePair<string, inventoryItem> entry in inventoryItem.itemDictionary)
@@ -201,11 +263,31 @@ namespace scanToolClasses
                 inventoryItem itm = entry.Value;
                 XmlNode itmXml = itm.encodeXML(doc);
                 rootNode.AppendChild(itmXml);
-                itemsSaved++;
+                itemsBuilt++;
             }
 
+            return itemsBuilt;
+
+        }
+
+        public static int saveItems(String fileName)
+        {
+            int itemsSaved = 0;
+            XmlDocument doc;
+            itemsSaved = BuildItemsXML(out doc);
             // now save the file
             doc.Save(fileName);
+            return itemsSaved;
+        }
+
+        public static int saveItems(FileStream fs)
+        {
+            fs.SetLength(0);
+            int itemsSaved = 0;
+            XmlDocument doc;
+            itemsSaved = BuildItemsXML(out doc);
+            // now save the file
+            doc.Save(fs);
             return itemsSaved;
         }
 
@@ -252,10 +334,10 @@ namespace scanToolClasses
                             // then let's add the barcodes from the file to the valid item.
                             // the assignBarcodesToItemFromXML method only adds barcodes to the item
                             // if they haven't already been added.
-                            XmlNode bcList = itms[i].SelectSingleNode("Barcodes");
+                            XmlNode bcList = itms[i].LastChild;
                             assignBarcodesToItemFromXML(bcList, itm);
                         }
-                        saveItems(fileName);
+                        saveItems(fs);
                     }
                     fs.Close();
                 }
