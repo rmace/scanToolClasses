@@ -413,6 +413,12 @@ namespace scanToolClasses
             }
         }
 
+        public void removeBarcode(barcode b)
+        {
+            barcodeList.Remove(b.getBarCodeText());
+            b.BarcodeList.Remove(b.getBarCodeText());
+        }
+
         public XmlNode encodeXML(XmlDocument doc)
         {
             // The outer node element is an "Item" node.
