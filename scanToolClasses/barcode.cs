@@ -42,7 +42,8 @@ namespace scanToolClasses
 
         // The constructor - we need to have both the barcode string and its associated inventory item
         // when we construct it.  It doesn't make any sense in our system to have a barcode without an
-        // associated item.
+        // associated item.  The only approved constructor of a barcode is an inventory
+        // item.  Inventory items create barcodes.  No one else should.
         public barcode(String bc, inventoryItem i)
         {
             barcodeText = bc;
